@@ -74,7 +74,7 @@ def llaToNEU( lla ):
     # convert to NED
     n, e, d = pm.geodetic2ned( lat, lon, alt, lat0, lon0, alt0 )
 
-    return np.column_stack( (n, e, -d) )  # return as NEU
+    return np.column_stack( ( n, e, -d ) )  # return as NEU
 
 
 def plotHeading( time, gyro, mag, trajOrientDeg, trajAngVel, est_states ):
@@ -113,6 +113,7 @@ def plotHeading( time, gyro, mag, trajOrientDeg, trajAngVel, est_states ):
     # ax1.set_xlim( t_min, t_max )
     # ax1.grid()
     # ax1.legend()
+    # fig1.savefig( 'plots/yaw_rate.png', bbox_inches='tight' )
 
     fig2, ax2 = plt.subplots( figsize=(12, 6.75))
     ax2.axhline( y=0.122, color='C0', label='True')
@@ -411,7 +412,9 @@ def plotMAT( time, accel, gyro, mag, gps_pos, trajAcc, trajVel, trajPos, trajAng
     ax10.set_ylabel( 'Ground Speed (m/s)' )
     ax10.set_title( 'Ground Speed' )
     ax10.set_xlim( t_min, t_max )
+    ax10.set_ylim( 0, 3 )
     ax10.grid()
+    ax10.legend()
     fig10.savefig( 'plots/ground_speed.png', bbox_inches='tight' )
 
 

@@ -26,7 +26,7 @@ if __name__ == "__main__":
     accel = data[ 'accel' ][:N, :]        # Accelerometer data: ax, ay, az (N x 3) (XYZ)
     gyro = data[ 'gyro' ][:N, :]          # Gyroscope data: p, q, r (N x 3) (XYZ)
     mag = data[ 'mag' ][:N, :]            # Magnetometer data: mx, my, mz (N x 3) (XYZ)
-    v_gps = data[ 'gpsvel' ][:N, :]       # GPS velocity: v_N, v_E, v_U (N x 3) (NEU)
+    gps_v = data[ 'gpsvel' ][:N, :]       # GPS velocity: v_N, v_E, v_U (N x 3) (NEU)
     lla = data[ 'lla' ][:N, :]            # GPS position: latitude, longitude, altitude (N x 3) (NEU)
 
     Ts = 0.01                     # Sampling time (s)
@@ -60,16 +60,29 @@ if __name__ == "__main__":
     ins = INS( Ts, mag[ 0, : ] )
     est_states[ 0, : ] = np.hstack( ( ins.s1.flatten(), ins.s2.flatten(), ins.s3.flatten() ) )
 
-    for k in range( 0, N-1 ):
-        s1 = ins.HeadingUpdateKF( gyro[ k, : ], mag[ k, : ] )
-        s2, s3 = ins.IMUUpdateKF( accel[ k, : ] )
-        est_states[ k+1, : ] = np.hstack( ( s1.flatten(), s2.flatten(), s3.flatten() ) )
+    # Asynchronous state estimation loop
+    # IMU rate: 100 Hz
+    # GPS rate: 5 Hz
+    for k in range( 0, N-1 ):       # Loop rate: 100 Hz (IMU rate)
+        # State prediction for all states
+        ins.StatePrediction( gyro[ k, : ] )
 
-    plotMAT( time, accel, gyro, mag, gps_pos, trajAcc, trajVel, trajPos, trajAngVel, trajOrientDeg, est_states )
+        # When gyro and magnetometer are available, update heading and bias estimates
+        ins.HeadingUpdateKF( gyro[ k, : ], mag[ k, : ] )
 
-    plotHeading( time, gyro, mag, trajOrientDeg, trajAngVel, est_states )
+        # When accelerometer is available, update position, velocity, and acceleration estimates
+        ins.IMUUpdateKF( accel[ k, : ] )
 
+        # when GPS is available, update position and velocity estimates
+        if k % 20 == 0:  # GPS update every 20 IMU samples (5 Hz)
+            ins.GPSUpdateKF( gps_pos[ k, : ], gps_v[ k, : ] )
+
+        # Store estimates
+        est_states[ k+1, : ] = np.hstack( ( ins.s1.flatten(), ins.s2.flatten(), ins.s3.flatten() ) )
 
     
+    plotMAT( time, accel, gyro, mag, gps_pos, trajAcc, trajVel, trajPos, trajAngVel, trajOrientDeg, est_states )
+    plotHeading( time, gyro, mag, trajOrientDeg, trajAngVel, est_states )
+
 
     # plt.show()

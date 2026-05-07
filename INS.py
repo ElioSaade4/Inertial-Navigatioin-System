@@ -115,8 +115,8 @@ class INS():
 
         # Filter 3 process noise covariance matrix
         self.Q3 = np.array( [
-            [ 0.00001, 0, 0 ],
-            [ 0, 0.00001, 0 ],
+            [ 0.01, 0, 0 ],
+            [ 0, 0.01, 0 ],
             [ 0, 0, 0.01 ]
         ] )
 
@@ -125,20 +125,35 @@ class INS():
             [ 0.1 ]
         ] )
 
+
+        self.A4 = np.array( [
+            [ 1,   self.Ts,   1/2 * self.Ts ** 2, 0, 0, 0 ],
+            [ 0,   1,         self.Ts           , 0, 0, 0 ],
+            [ 0,   0,         1                 , 0, 0, 0 ],
+            [0, 0, 0, 1, self.Ts, 1/2 * self.Ts ** 2],
+            [0, 0, 0, 0, 1, self.Ts],
+            [0, 0, 0, 0, 0, 1]
+        ])
+
+        self.P4 = np.eye( 6 ) * 0.1
+        self.Q4 = np.eye( 6 ) * 0.01
+        self.R4 = np.eye( 3 ) * 100
+
         
-    def StatePrediction( self ):
+    def StatePrediction( self, gyro: np.ndarray ):
+        u = np.array( [
+            [ gyro[ 2 ] ]
+        ])   # Yaw rate measurement (rad/s)
+
+        self.s1 = self.A1 @ self.s1 + self.B1 @ u
         self.s2 = self.A2 @ self.s2
         self.s3 = self.A3 @ self.s3
 
     
     def HeadingUpdateKF( self, gyro: np.ndarray, mag: np.ndarray ):
-        u = np.array( [
-            [ gyro[ 2 ] ]
-        ])   # Yaw rate measurement (rad/s)
 
-        # Predict the state
-        s1_p = self.A1 @ self.s1 + self.B1 @ u
-
+        s1_p = self.s1.copy()
+        
         # Predict error covariance
         P1_p = self.A1 @ self.P1 @ self.A1.T + self.Q1
 
@@ -164,13 +179,11 @@ class INS():
         # Error covariance correction
         self.P1 = ( np.eye( 2 ) - K1 @ self.C1 ) @ P1_p
 
-        return self.s1
-
     
     def IMUUpdateKF( self, accel: np.ndarray ):
         # Part 1: Update the North components
-        # Predict the state
-        s2_p = self.A2 @ self.s2
+        # Copy the predicted state
+        s2_p = self.s2.copy()
 
         # Predict error covariance
         P2_p = self.A2 @ self.P2 @ self.A2.T + self.Q2
@@ -196,8 +209,8 @@ class INS():
         self.P2 = ( np.eye( 3 ) - K2 @ self.C2 ) @ P2_p
 
         # Part 2: Update the East components
-        # Predict the state
-        s3_p = self.A3 @ self.s3
+        # Copy the predicted state
+        s3_p = self.s3.copy()
 
         # Predict error covariance
         P3_p = self.A3 @ self.P3 @ self.A3.T + self.Q3
@@ -219,4 +232,51 @@ class INS():
         # Error covariance correction
         self.P3 = ( np.eye( 3 ) - K3 @ self.C3 ) @ P3_p
 
-        return self.s2, self.s3
+
+    def GPSUpdateKF( self, gps_pos: np.ndarray, gps_vel: np.ndarray ):
+
+        # Copy the predicted state
+        s4_p = np.vstack( ( self.s2, self.s3 ) )  # Combined state vector for position and velocity
+
+        # Predict error covariance
+        P4_p = self.A4 @ self.P4 @ self.A4.T + self.Q4
+
+        # Predicted output
+        y_p = np.array( [
+            [ s4_p[ 0, 0 ] ],  # Predicted position in North direction (xN)
+            [ s4_p[ 3, 0 ] ],  # Predicted position in East direction (xE)
+            [ np.sqrt( s4_p[ 1, 0 ]**2 + s4_p[ 4, 0 ]**2 ) ]  # Predicted ground speed
+        ] )
+        
+        # Calculate Jacobian of the measurement function
+        H = np.zeros( ( 3, 6 ) )
+        vN = s4_p[ 1, 0 ]  # Predicted velocity in North direction
+        vE = s4_p[ 4, 0 ]  # Predicted velocity in East direction
+        H[ 0, 0 ] = 1  # xN measurement
+        H[ 1, 3 ] = 1  # xE measurement
+        H[ 2, 1 ] = vN / ( np.sqrt( vN**2 + vE**2 ) + 1e-6 ) # vN measurement
+        H[ 2, 4 ] = vE / ( np.sqrt( vN**2 + vE**2 ) + 1e-6 ) # vE measurement
+
+        # Calculate the Kalman gain
+        K4 = P4_p @ H.T @ np.linalg.inv( H @ P4_p @ H.T + self.R4 )
+
+        # Measurement vector
+        y4 = np.array( [
+            [ gps_pos[ 0 ] ],  # Measured position in North direction (xN)
+            [ gps_pos[ 1 ] ],  # Measured position in East direction (xE)
+            [ np.sqrt( gps_vel[ 0 ]**2 + gps_vel[ 1 ]**2 ) ]  # Measured ground speed
+         ] )
+        
+        # State correction
+        s4_corrected = s4_p + K4 @ ( y4 - y_p )
+
+        # Error covariance correction
+        self.P4 = ( np.eye( 6 ) - K4 @ H ) @ P4_p
+
+        # Update the individual filter states with the corrected combined state
+        self.s2[ 0, 0 ] = s4_corrected[ 0, 0 ]  # Updated position in North direction (xN)
+        self.s2[ 1, 0 ] = s4_corrected[ 1, 0 ]  # Updated velocity in North direction (vN)
+        self.s2[ 2, 0 ] = s4_corrected[ 2, 0 ]  # Updated acceleration in North direction (aN)
+        self.s3[ 0, 0 ] = s4_corrected[ 3, 0 ]  # Updated position in East direction (xE)
+        self.s3[ 1, 0 ] = s4_corrected[ 4, 0 ]  # Updated velocity in East direction (vE)
+        self.s3[ 2, 0 ] = s4_corrected[ 5, 0 ]  # Updated acceleration in East direction (aE)
