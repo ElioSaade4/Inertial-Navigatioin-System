@@ -3,11 +3,13 @@ import numpy as np
 class INS():
 
     def __init__( self, Ts, mag: np.ndarray ):
+        
+        # Assumption: vehicle starts at rest at the origin (0,0)
 
         self.Ts = Ts  # Sampling time (seconds)
-        self.mag_declination = 0.23562  # Magnetic declination at the location (radians) - Found from 1st lat, lon and https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml
 
-        # Assumption: vehicle starts at rest at the origin (0,0)
+        # Magnetic declination at the location (radians) - Found from 1st lat, lon and https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml
+        self.mag_declination = 0.23562  
 
         # Initialize heading angle from first magnetometer reading
         m = np.sqrt( mag[0]**2 + mag[1]**2 )  
@@ -22,38 +24,38 @@ class INS():
 
         # State: [heading, bias]
         self.A1 = np.array([
-            [1, -Ts],   # heading += -bias * Ts
-            [0,  1 ]
+            [ 1,   -Ts ],   # heading += -bias * Ts
+            [ 0,   1   ]
         ])  # bias is modeled as constant
 
         self.B1 = np.array([
-            [Ts],       # gyro input drives heading
-            [0 ]
+            [ Ts ],       # gyro input drives heading
+            [ 0 ]
         ])      # gyro doesn't directly update bias
 
         self.C1 = np.array([
-            [1, 0]
+            [ 1, 0 ]
         ])    # magnetometer only observes heading
 
         self.P1 = np.array([
-            [0.1,  0 ],
-            [0,    10 ]
+            [ 0.1,   0  ],
+            [ 0,     100 ]
         ])  # high initial bias uncertainty
 
         self.Q1 = np.array([
-            [1,  0],
-            [0,  1e-2]
+            [ 1,   0    ],
+            [ 0,   1e-2 ]
         ])  # bias changes very slowly
 
         self.R1 = np.array([
-            [0.1]
+            [ 0.1 ]
         ])         
         
         # Filter 2: North direction position, velocity, and acceleration estimation
         self.s2 = np.array( [
-            [ 0 ],                      # State: position in North direction (xN)       
+            [ 0 ],                          # State: position in North direction (xN)       
             [ -1.04 ],                      # State: velocity in North direction (vN)
-            [ 0 ]                       # State: acceleration in North direction (aN)
+            [ 0 ]                           # State: acceleration in North direction (aN)
         ])
 
         # Filter 2 state transition matrix
@@ -70,16 +72,16 @@ class INS():
 
         # Filter 2 error covariance matrix
         self.P2 = np.array([
-            [ 0.1, 0, 0 ],
-            [ 0, 0.1, 0 ],
-            [ 0, 0, 0.1 ]
+            [ 0.1,   0,     0   ],
+            [ 0,     0.1,   0   ],
+            [ 0,     0,     0.1 ]
         ] )  
 
         # Filter 2 process noise covariance matrix
         self.Q2 = np.array( [
-            [ 0.01, 0, 0 ],
-            [ 0, 0.01, 0 ],
-            [ 0, 0, 0.01 ]
+            [ 0.01,   0,      0    ],
+            [ 0,      0.01,   0    ],
+            [ 0,      0,      0.01 ]
         ] )
 
         # Filter 2 measurement noise covariance matrix
@@ -89,16 +91,16 @@ class INS():
 
         # Filter 3: East direction position, velocity, and acceleration estimation
         self.s3 = np.array( [
-            [ 0 ],                      # State: position in East direction (xN)       
+            [ 0    ],                      # State: position in East direction (xN)       
             [ 1.97 ],                      # State: velocity in East direction (vN)
-            [ 0 ]                       # State: acceleration in East direction (aN)
+            [ 0    ]                       # State: acceleration in East direction (aN)
         ])
 
         # Filter 3 state transition matrix
         self.A3 = np.array( [
-            [ 1, self.Ts, 1/2 * self.Ts ** 2 ],
-            [ 0, 1, self.Ts ],
-            [ 0, 0, 1 ] 
+            [ 1,   self.Ts,   1/2 * self.Ts ** 2 ],
+            [ 0,   1,         self.Ts            ],
+            [ 0,   0,         1                  ] 
         ])
 
         # Filter 3 measurement matrix
@@ -108,9 +110,9 @@ class INS():
 
         # Filter 3 error covariance matrix
         self.P3 = np.array([
-            [ 0.1, 0, 0 ],
-            [ 0, 0.1, 0 ],
-            [ 0, 0, 0.1 ]
+            [ 0.1,   0,     0   ],
+            [ 0,     0.1,   0   ],
+            [ 0,     0,     0.1 ]
         ] )  
 
         # Filter 3 process noise covariance matrix
@@ -127,17 +129,30 @@ class INS():
 
 
         self.A4 = np.array( [
-            [ 1,   self.Ts,   1/2 * self.Ts ** 2, 0, 0, 0 ],
-            [ 0,   1,         self.Ts           , 0, 0, 0 ],
-            [ 0,   0,         1                 , 0, 0, 0 ],
-            [0, 0, 0, 1, self.Ts, 1/2 * self.Ts ** 2],
-            [0, 0, 0, 0, 1, self.Ts],
-            [0, 0, 0, 0, 0, 1]
+            [ 1,   self.Ts,   1/2 * self.Ts ** 2,   0,   0,         0                  ],
+            [ 0,   1,         self.Ts           ,   0,   0,         0                  ],
+            [ 0,   0,         1                 ,   0,   0,         0                  ],
+            [ 0,   0,         0,                    1,   self.Ts,   1/2 * self.Ts ** 2 ],
+            [ 0,   0,         0,                    0,   1,         self.Ts            ],
+            [ 0,   0,         0,                    0,   0,         1                  ]
         ])
 
         self.P4 = np.eye( 6 ) * 0.1
-        self.Q4 = np.eye( 6 ) * 0.01
-        self.R4 = np.eye( 3 ) * 100
+
+        self.Q4 = np.array( [
+            [ 0.01, 0, 0, 0, 0, 0 ],
+            [ 0, 0.01, 0, 0, 0, 0 ],
+            [ 0, 0, 0.01, 0, 0, 0 ],
+            [ 0, 0, 0, 0.01, 0, 0 ],
+            [ 0, 0, 0, 0, 0.01, 0 ],
+            [ 0, 0, 0, 0, 0, 0.01 ]
+        ])
+        
+        self.R4 = np.array( [
+            [ 100, 0, 0 ],
+            [ 0, 100, 0 ],
+            [ 0, 0, 0.5 ]
+        ] )
 
         
     def StatePrediction( self, gyro: np.ndarray ):
@@ -180,7 +195,7 @@ class INS():
         self.P1 = ( np.eye( 2 ) - K1 @ self.C1 ) @ P1_p
 
     
-    def IMUUpdateKF( self, accel: np.ndarray ):
+    def  IMUUpdateKF( self, accel: np.ndarray ):
         # Part 1: Update the North components
         # Copy the predicted state
         s2_p = self.s2.copy()
