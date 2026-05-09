@@ -1,1 +1,1 @@
-# Inertial-Navigatioin-System
+# Inertial-Navigation-System
